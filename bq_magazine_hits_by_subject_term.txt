@@ -1,0 +1,40 @@
+/*
+magazine_hits_by_subject_term
+
+Initial query returns all hits for specified date(s), and unnests to return a row for each individial subject term
+with additional article metadata
+Uses the filters from the Nature Magazine view to limit to just magazine hits
+
+Data is pushed into subject_term.magazine_hits_by_subject_term table - aim is to automate
+*/  
+
+WITH x as 
+(
+  SELECT ga.fullVisitorId, ga.visitID, h.hitNumber, PARSE_DATE('%Y%m%d', ga.date) as date, h.page.pagePath
+    , (SELECT x.value FROM UNNEST(h.customDimensions) x WHERE x.index = 22 ) as subject_terms
+    , (SELECT x.value FROM UNNEST(h.customDimensions) x WHERE x.index = 19 ) as wt_content_group
+    , (SELECT x.value FROM UNNEST(h.customDimensions) x WHERE x.index = 20 ) as wt_content_sub_group  --Scalar subquery produced more than one element
+    , (SELECT x.value FROM UNNEST(h.customDimensions) x WHERE x.index = 6 ) as doi
+    , (SELECT x.value FROM UNNEST(h.customDimensions) x WHERE x.index = 8 ) as pub_date
+  FROM `springer-nature-analytics.125148123.ga_sessions_2018*` as ga
+     , UNNEST (ga.hits) as h
+  WHERE _TABLE_SUFFIX BETWEEN '0601' AND '0820'
+) 
+
+SELECT subject_term, x.date, x.doi, x.all_terms
+  , ARRAY_LENGTH(x.subject_terms) as count_of_terms
+  , x.pub_date
+FROM 
+  (
+    SELECT SPLIT (x.subject_terms,';') as subject_terms
+      , x.wt_content_group
+      , x.wt_content_sub_group
+      , x.doi, x.date
+      , x.subject_terms as all_terms
+      , x.pub_date
+    FROM x
+    WHERE x.subject_terms is not null and x.subject_terms != '(not set)'
+      and REGEXP_CONTAINS(x.wt_content_group,r"^nature$|^nature news$")
+      and REGEXP_CONTAINS(x.wt_content_sub_group, r"^editorial$|^worl.*ew$|^muse$|^sev.*ays$|^news$|^news.*|^comment$|^books.*$|^obituary$|^futures$|^toolbox$|^career.*$|^spotlight$|^techno.*$|^outlook$|^nat.*dex$|^introduction$|^outline$|^corre.*$|^retraction$|^clarification$|^rese.*highl.*|^nat.*dcast$")
+  ) x
+  , unnest(x.subject_terms) as subject_term
